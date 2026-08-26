@@ -38,8 +38,8 @@
     "ENVIRONMENT": "production",
     // Domínio de equipe do Cloudflare Access, usado futuramente para validar o JWT.
     // Ex.: "rslog.cloudflareaccess.com"
-    "CF_ACCESS_TEAM_DOMAIN": "SUBSTITUA_PELO_SEU_TEAM_DOMAIN",
-    "CF_ACCESS_AUD": "SUBSTITUA_PELO_AUD_DA_APLICACAO_ACCESS"
+    "CF_ACCESS_TEAM_DOMAIN": "steep-brook-3639.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "a0a9e566ef81cd6bf6552ff54f095b4c39f62155a5f34e40600fbb9e50c456b9"
   },
 
   "observability": {
