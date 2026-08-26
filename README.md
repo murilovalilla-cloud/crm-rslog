@@ -9,11 +9,10 @@ CRM de prospecção ativa da RS LOG (transportes/logística), construído como a
 - **Autenticação:** Cloudflare Access
 - **Controle de versão / CI:** GitHub + Cloudflare Workers Builds
 
-Este repositório corresponde às **Etapas 1, 2 e 3** do projeto — as três etapas planejadas estão concluídas:
+Este repositório corresponde às **Etapas 1 e 2** do projeto:
 
 - **Etapa 1:** estrutura do projeto, banco D1 completo, cadastro de empresas e contatos, funil Kanban, histórico, atividades/calendário e armazenamento real no D1 — nada de dados simulados depois que o banco está conectado.
 - **Etapa 2:** cotações (múltiplas por oportunidade, com itens), cadências de prospecção (modelos reutilizáveis aplicados às oportunidades, gerando atividades automaticamente), área de nutrição de leads (com retomada e preservação total do histórico), importação de planilhas (XLSX/CSV com mapeamento de colunas, prévia e confirmação), exportação (CSV/XLSX/backup JSON) e o dashboard completo com todos os indicadores calculados via consultas reais ao D1.
-- **Etapa 3:** verificação criptográfica do JWT do Cloudflare Access (defesa em profundidade), tela de gestão de usuários/equipe, trilha de auditoria completa com filtros, cabeçalhos de segurança HTTP, testes adicionais e refinamentos finais de navegação.
 
 ---
 
@@ -26,13 +25,12 @@ Este repositório corresponde às **Etapas 1, 2 e 3** do projeto — as três et
 - [Aplicar as migrations](#aplicar-as-migrations)
 - [Adicionar novos vendedores](#adicionar-novos-vendedores)
 - [Funcionalidades da Etapa 2](#funcionalidades-da-etapa-2)
-- [Funcionalidades da Etapa 3](#funcionalidades-da-etapa-3)
 - [Testes automatizados](#testes-automatizados)
 - [Publicar em produção](#publicar-em-produção)
 - [Conectar o GitHub ao Cloudflare (Workers Builds)](#conectar-o-github-ao-cloudflare-workers-builds)
 - [Configurar o Cloudflare Access](#configurar-o-cloudflare-access)
 - [Segurança](#segurança)
-- [Status do projeto](#status-do-projeto)
+- [Roadmap (Etapa 3)](#roadmap-etapa-3)
 
 ---
 
@@ -177,21 +175,17 @@ npm run db:seed:remote
 
 ## Adicionar novos vendedores
 
-Desde a Etapa 3, o dia a dia de cadastrar/editar/desativar usuários é feito pela própria tela **Usuários** (menu lateral, só visível para administradores). Para autorizar um novo vendedor:
+Na Etapa 1, o cadastro de usuários é feito diretamente no banco (uma tela de gestão de equipe é prevista para a Etapa 3). Para autorizar um novo vendedor:
 
 1. Ele precisa primeiro existir como usuário autorizado no **Cloudflare Access** (veja a seção abaixo) — isso controla quem consegue sequer chegar ao Worker.
-2. Um administrador cadastra o mesmo e-mail em **Usuários → Novo usuário**, definindo nome e papel (`admin` ou `vendedor`). A tela também permite editar nome/e-mail/papel e desativar (`active = 0`) alguém que saiu da equipe — usuários nunca são excluídos de verdade, pois oportunidades, atividades, notas e o `audit_log` referenciam o `id` dele.
+2. Cadastre o usuário na tabela `users`, para que o backend saiba identificá-lo e atribuir atividades/auditoria a ele:
+
+   ```bash
+   npx wrangler d1 execute crm-rslog-db --remote --command \
+     "INSERT INTO users (id, email, name, role, active) VALUES ('usr_novo', 'novo.vendedor@rslog.com.br', 'Nome do Vendedor', 'vendedor', 1);"
+   ```
 
 Sem as duas etapas, o acesso é negado: o Access bloqueia e-mails não autorizados no edge, e o backend também recusa (403) qualquer e-mail que não exista como usuário ativo — mesmo que, por algum motivo, ele passasse pelo Access.
-
-> **Bootstrap do primeiro administrador:** como a tela de Usuários só é acessível a quem já é `admin`, o **primeiro** administrador do sistema (ou a recuperação de um ambiente sem nenhum admin ativo) ainda precisa ser cadastrado direto no banco:
->
-> ```bash
-> npx wrangler d1 execute crm-rslog-db --remote --command \
->   "INSERT INTO users (id, email, name, role, active) VALUES ('usr_admin', 'admin@rslog.com.br', 'Nome do Administrador', 'admin', 1);"
-> ```
->
-> A partir daí, todo o resto pode ser feito pela própria interface.
 
 ---
 
@@ -224,26 +218,6 @@ O dashboard (tela inicial) calcula todos os indicadores com consultas reais ao D
 
 ---
 
-## Funcionalidades da Etapa 3
-
-### Verificação criptográfica do JWT do Cloudflare Access
-
-Além de confiar no cabeçalho `Cf-Access-Authenticated-User-Email` (já protegido pelo Access no edge), o Worker pode validar a assinatura do JWT enviado em `Cf-Access-Jwt-Assertion` contra o JWKS público do team domain — emissor, audiência e expiração inclusive (`worker/accessJwt.ts`, usando a lib [`jose`](https://github.com/panva/jose), compatível com o runtime de Workers). Essa checagem extra liga sozinha assim que `CF_ACCESS_TEAM_DOMAIN` e `CF_ACCESS_AUD` forem preenchidos com valores reais em `wrangler.jsonc` (veja [Configurar o Cloudflare Access](#configurar-o-cloudflare-access)); enquanto ficarem com os valores de exemplo, o CRM segue funcionando normalmente só com o cabeçalho de e-mail.
-
-### Gestão de usuários e equipe
-
-A tela **Usuários** (visível só para administradores) lista todos os usuários — ativos e inativos —, permite criar novos, editar nome/e-mail/papel e ativar/desativar. Duas proteções em vigor: e-mail duplicado é rejeitado (`409`), e um administrador não pode remover o próprio papel de admin nem se desativar (evita que a equipe fique sem nenhum admin ativo por engano). Toda criação/edição gera uma linha no `audit_log`.
-
-### Trilha de auditoria
-
-A tela **Auditoria** (também restrita a administradores) consulta o `audit_log` com filtros por tipo de registro, usuário responsável e período, mostrando quem alterou o quê, quando, e o valor antigo/novo de cada campo alterado — cobrindo empresas, contatos, oportunidades, atividades, cotações, cadências, nutrição de leads e os próprios usuários. A rota (`GET /api/audit-log`) é paginada e somente leitura.
-
-### Cabeçalhos de segurança HTTP
-
-Todo o Worker (API e frontend estático) responde com um conjunto de cabeçalhos de segurança — `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` e `Permissions-Policy` (`worker/securityHeaders.ts`) — como reforço adicional além do perímetro já garantido pelo Cloudflare Access.
-
----
-
 ## Testes automatizados
 
 ```bash
@@ -263,9 +237,6 @@ A suíte cobre as regras de negócio e validações mais críticas:
 - **`tests/frontend/formSchemas.test.ts`** — validação client-side dos formulários, incluindo cotações, itens de cotação, modelos de cadência e nutrição.
 - **`tests/frontend/spreadsheet.test.ts`** — mapeamento automático de colunas da planilha para os campos do CRM e aplicação do mapeamento escolhido pelo usuário.
 - **`tests/frontend/ActivityBadge.test.tsx`** / **`QuoteStatusBadge.test.tsx`** — renderização dos selos de alerta e de situação da cotação (cores/rótulos).
-- **`tests/worker/accessJwt.test.ts`** — detecção de quando a verificação do JWT do Access está de fato configurada (vs. valores de exemplo do `wrangler.jsonc`) e recusa de tokens malformados sem lançar exceção.
-- **`tests/worker/securityHeaders.test.ts`** — presença dos cabeçalhos de segurança em respostas normais e em respostas de erro (404).
-- Schemas de usuário (`userCreateSchema`/`userUpdateSchema`) cobertos em **`tests/worker/schemas.test.ts`**.
 
 Outras verificações úteis antes de um deploy:
 
@@ -324,7 +295,7 @@ O CRM **não pode ficar aberto ao público** — o Access protege o domínio int
 
 5. Para liberar um novo vendedor futuramente, basta adicionar o e-mail dele na política do Access **e** cadastrá-lo na tabela `users` (veja [Adicionar novos vendedores](#adicionar-novos-vendedores)).
 
-> O backend identifica o usuário autenticado pelo cabeçalho `Cf-Access-Authenticated-User-Email`, que o Access injeta depois de validar o login — o Worker nunca fica acessível sem passar por essa validação em produção. Desde a Etapa 3, quando `CF_ACCESS_TEAM_DOMAIN`/`CF_ACCESS_AUD` são preenchidos como acima, o Worker também valida a assinatura do JWT do Access (`Cf-Access-Jwt-Assertion`) contra o JWKS do team domain — ver [Verificação criptográfica do JWT do Cloudflare Access](#verificação-criptográfica-do-jwt-do-cloudflare-access).
+> Nesta Etapa 1, o backend identifica o usuário autenticado pelo cabeçalho `Cf-Access-Authenticated-User-Email`, que o Access injeta depois de validar o login — o Worker nunca fica acessível sem passar por essa validação em produção. O endurecimento adicional (verificação criptográfica do JWT de Access contra o JWKS do team domain) está previsto para a Etapa 3, junto da auditoria completa.
 
 ---
 
@@ -332,13 +303,18 @@ O CRM **não pode ficar aberto ao público** — o Access protege o domínio int
 
 - Nenhum segredo, token ou credencial está neste repositório. `.dev.vars` (valores reais locais) e `.wrangler/` estão no `.gitignore`; apenas `.dev.vars.example` (sem valores sensíveis) é versionado.
 - Toda validação relevante acontece **também no backend** (`worker/validation/schemas.ts`), mesmo já existindo validação no frontend — o backend nunca confia apenas no que o cliente envia.
-- Toda alteração de etapa no funil grava simultaneamente em `activity_history` (linha do tempo do card) e em `audit_log` (trilha de auditoria com usuário, campo, valor antigo e novo) — consultável na tela **Auditoria**.
-- Operações destrutivas (excluir empresa, contato, oportunidade, atividade) exigem confirmação explícita no frontend (`ConfirmDialog`) e, no backend, empresas/etapas com registros vinculados não podem ser excluídas sem antes desvincular os dados (retorna `409`). Usuários não são excluídos, apenas desativados, para preservar essas referências.
-- Rotas administrativas (`/api/users`, `/api/audit-log`) exigem papel `admin` (`requireAdmin`, `worker/auth.ts`) — um vendedor autenticado recebe `403` mesmo que tente acessá-las diretamente pela API.
-- Defesa em profundidade adicional: verificação opcional do JWT do Access (veja acima) e cabeçalhos de segurança HTTP (`Content-Security-Policy`, `X-Frame-Options` etc.) em toda resposta do Worker.
+- Toda alteração de etapa no funil grava simultaneamente em `activity_history` (linha do tempo do card) e em `audit_log` (trilha de auditoria com usuário, campo, valor antigo e novo).
+- Operações destrutivas (excluir empresa, contato, oportunidade, atividade) exigem confirmação explícita no frontend (`ConfirmDialog`) e, no backend, empresas/etapas com registros vinculados não podem ser excluídas sem antes desvincular os dados (retorna `409`).
 
 ---
 
-## Status do projeto
+## Roadmap (Etapa 3)
 
-As três etapas planejadas estão concluídas — veja [Funcionalidades da Etapa 2](#funcionalidades-da-etapa-2) e [Funcionalidades da Etapa 3](#funcionalidades-da-etapa-3) acima para o detalhe de cada entrega. Ideias para uma eventual "Etapa 4", não solicitadas até o momento: notificações por e-mail/WhatsApp de atividades atrasadas, anexos de arquivo em cotações (o binding R2 comentado em `wrangler.jsonc` já prevê isso), relatórios exportáveis em PDF e testes end-to-end de navegador (Playwright) cobrindo os fluxos completos de tela.
+Etapas 1 e 2 estão concluídas (veja [Funcionalidades da Etapa 2](#funcionalidades-da-etapa-2) acima). Falta:
+
+**Etapa 3:**
+- Verificação criptográfica do JWT do Cloudflare Access (defesa em profundidade)
+- Tela de gestão de usuários/equipe
+- Auditoria completa e relatórios de trilha
+- Testes end-to-end adicionais
+- Refinamentos visuais e configuração final de produção
