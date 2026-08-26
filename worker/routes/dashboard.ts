@@ -16,6 +16,7 @@
 
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { isAdmin } from "../utils";
 
 const dashboard = new Hono<AppEnv>();
 
@@ -23,6 +24,14 @@ const STALLED_THRESHOLD_DAYS = 10;
 
 dashboard.get("/", async (c) => {
   const db = c.env.DB;
+  const user = c.get("user");
+  // Vendedor vê apenas os próprios números; administrador vê o total da
+  // equipe. Empresas continuam sendo cadastro compartilhado (não é
+  // filtrado), então "total_leads"/"new_leads_month" seguem globais.
+  const scoped = !isAdmin(user);
+  const ownerFilterOpp = scoped ? "AND o.owner_id = ?" : "";
+  const ownerFilterAct = scoped ? "AND a.owner_id = ?" : "";
+  const ownerParam = scoped ? [user.id] : [];
 
   const stages = await db.prepare("SELECT * FROM pipeline_stages WHERE active = 1 ORDER BY position ASC").all<{
     id: string;
@@ -58,82 +67,112 @@ dashboard.get("/", async (c) => {
     db.prepare("SELECT COUNT(*) as n FROM companies WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')").first<{ n: number }>(),
     db
       .prepare(
-        `SELECT COUNT(*) as n FROM activity_history
-         WHERE type IN ('ligacao','email','whatsapp','reuniao','visita')
-           AND strftime('%Y-%m', occurred_at) = strftime('%Y-%m', 'now')`
+        `SELECT COUNT(*) as n FROM activity_history h
+         JOIN opportunities o ON o.id = h.opportunity_id
+         WHERE h.type IN ('ligacao','email','whatsapp','reuniao','visita')
+           AND strftime('%Y-%m', h.occurred_at) = strftime('%Y-%m', 'now')
+           ${ownerFilterOpp}`
       )
+      .bind(...ownerParam)
       .first<{ n: number }>(),
-    db.prepare("SELECT COUNT(*) as n FROM activities WHERE status = 'pendente' AND date(due_at) < date('now')").first<{ n: number }>(),
-    db.prepare("SELECT COUNT(*) as n FROM activities WHERE status = 'pendente' AND date(due_at) = date('now')").first<{ n: number }>(),
+    db
+      .prepare(`SELECT COUNT(*) as n FROM activities a WHERE a.status = 'pendente' AND date(a.due_at) < date('now') ${ownerFilterAct}`)
+      .bind(...ownerParam)
+      .first<{ n: number }>(),
+    db
+      .prepare(`SELECT COUNT(*) as n FROM activities a WHERE a.status = 'pendente' AND date(a.due_at) = date('now') ${ownerFilterAct}`)
+      .bind(...ownerParam)
+      .first<{ n: number }>(),
     db
       .prepare(
         `SELECT COUNT(*) as n FROM opportunities o JOIN pipeline_stages s ON s.id = o.stage_id
-         WHERE o.status = 'aberta' AND s.position >= ?`
+         WHERE o.status = 'aberta' AND s.position >= ? ${ownerFilterOpp}`
       )
-      .bind(qualifiedThreshold)
+      .bind(qualifiedThreshold, ...ownerParam)
       .first<{ n: number }>(),
     db
       .prepare(
-        `SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN status != 'rascunho' THEN 1 ELSE 0 END), 0) as sent, COALESCE(SUM(value), 0) as total_value
-         FROM quotes`
+        `SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN q.status != 'rascunho' THEN 1 ELSE 0 END), 0) as sent, COALESCE(SUM(q.value), 0) as total_value
+         FROM quotes q JOIN opportunities o ON o.id = q.opportunity_id
+         WHERE 1 = 1 ${ownerFilterOpp}`
       )
+      .bind(...ownerParam)
       .first<{ total: number; sent: number; total_value: number }>(),
-    db.prepare("SELECT COUNT(*) as n, COALESCE(SUM(value), 0) as revenue FROM opportunities WHERE status = 'ganha'").first<{
-      n: number;
-      revenue: number;
-    }>(),
     db
       .prepare(
-        "SELECT AVG(julianday(closed_at) - julianday(created_at)) as avg_days FROM opportunities WHERE status = 'ganha' AND closed_at IS NOT NULL"
+        `SELECT COUNT(*) as n, COALESCE(SUM(o.value), 0) as revenue FROM opportunities o
+         WHERE o.status = 'ganha' ${ownerFilterOpp}`
       )
+      .bind(...ownerParam)
+      .first<{ n: number; revenue: number }>(),
+    db
+      .prepare(
+        `SELECT AVG(julianday(o.closed_at) - julianday(o.created_at)) as avg_days FROM opportunities o
+         WHERE o.status = 'ganha' AND o.closed_at IS NOT NULL ${ownerFilterOpp}`
+      )
+      .bind(...ownerParam)
       .first<{ avg_days: number | null }>(),
-    db.prepare("SELECT COALESCE(SUM(value), 0) as total FROM opportunities WHERE status = 'aberta'").first<{ total: number }>(),
+    db
+      .prepare(`SELECT COALESCE(SUM(o.value), 0) as total FROM opportunities o WHERE o.status = 'aberta' ${ownerFilterOpp}`)
+      .bind(...ownerParam)
+      .first<{ total: number }>(),
     db
       .prepare(
         `SELECT s.id as stage_id, s.name as stage_name, s.position, COUNT(o.id) as count, COALESCE(SUM(o.value), 0) as value
-         FROM pipeline_stages s LEFT JOIN opportunities o ON o.stage_id = s.id
+         FROM pipeline_stages s LEFT JOIN opportunities o ON o.stage_id = s.id ${scoped ? "AND o.owner_id = ?" : ""}
          WHERE s.active = 1
          GROUP BY s.id ORDER BY s.position ASC`
       )
+      .bind(...ownerParam)
       .all<{ stage_id: string; stage_name: string; position: number; count: number; value: number }>(),
     db
       .prepare(
         `SELECT s.position, COALESCE(SUM(o.value), 0) as value
-         FROM pipeline_stages s LEFT JOIN opportunities o ON o.stage_id = s.id AND o.status = 'aberta'
+         FROM pipeline_stages s LEFT JOIN opportunities o ON o.stage_id = s.id AND o.status = 'aberta' ${scoped ? "AND o.owner_id = ?" : ""}
          WHERE s.active = 1 AND s.is_won = 0 AND s.is_lost = 0 AND s.is_nutrition = 0
          GROUP BY s.id ORDER BY s.position ASC`
       )
+      .bind(...ownerParam)
       .all<{ position: number; value: number }>(),
+    // Vendedor não vê o desempenho dos colegas: a quebra por responsável só
+    // faz sentido completa para o administrador — para o vendedor, o filtro
+    // acima já restringe às próprias oportunidades, então essa consulta
+    // naturalmente retorna só a própria linha.
     db
       .prepare(
         `SELECT u.id as owner_id, u.name as owner_name, COUNT(o.id) as count, COALESCE(SUM(o.value), 0) as value
          FROM opportunities o JOIN users u ON u.id = o.owner_id
-         WHERE o.status = 'ganha'
+         WHERE o.status = 'ganha' ${ownerFilterOpp}
          GROUP BY u.id ORDER BY value DESC`
       )
+      .bind(...ownerParam)
       .all<{ owner_id: string; owner_name: string; count: number; value: number }>(),
     db
       .prepare(
         `SELECT u.id as owner_id, u.name as owner_name, COUNT(a.id) as count
          FROM activities a JOIN users u ON u.id = a.owner_id
+         WHERE 1 = 1 ${ownerFilterAct}
          GROUP BY u.id ORDER BY count DESC`
       )
+      .bind(...ownerParam)
       .all<{ owner_id: string; owner_name: string; count: number }>(),
     db
       .prepare(
         `SELECT COALESCE(c.source, 'Não informado') as source, COUNT(o.id) as count, COALESCE(SUM(o.value), 0) as value
          FROM opportunities o JOIN companies c ON c.id = o.company_id
-         WHERE o.status = 'ganha'
+         WHERE o.status = 'ganha' ${ownerFilterOpp}
          GROUP BY source ORDER BY value DESC LIMIT 10`
       )
+      .bind(...ownerParam)
       .all<{ source: string; count: number; value: number }>(),
     db
       .prepare(
         `SELECT COALESCE(lr.name, 'Sem motivo informado') as reason, COUNT(o.id) as count
          FROM opportunities o LEFT JOIN loss_reasons lr ON lr.id = o.loss_reason_id
-         WHERE o.status = 'perdida'
+         WHERE o.status = 'perdida' ${ownerFilterOpp}
          GROUP BY reason ORDER BY count DESC`
       )
+      .bind(...ownerParam)
       .all<{ reason: string; count: number }>(),
     db
       .prepare(
@@ -143,13 +182,13 @@ dashboard.get("/", async (c) => {
            FROM opportunities o
            JOIN companies c ON c.id = o.company_id
            LEFT JOIN users u ON u.id = o.owner_id
-           WHERE o.status = 'aberta'
+           WHERE o.status = 'aberta' ${ownerFilterOpp}
          ) t
          WHERE julianday('now') - julianday(t.last_touch_at) > ?
          ORDER BY t.last_touch_at ASC
          LIMIT 200`
       )
-      .bind(STALLED_THRESHOLD_DAYS)
+      .bind(...ownerParam, STALLED_THRESHOLD_DAYS)
       .all<{ id: string; title: string; company_name: string; value: number | null; owner_id: string | null; owner_name: string | null; last_touch_at: string }>(),
   ]);
 

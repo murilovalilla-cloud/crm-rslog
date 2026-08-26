@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useActivities, useCompleteActivity, useDeleteActivity } from "@/hooks/useActivities";
-import { useUsers } from "@/hooks/useCurrentUser";
+import { useCurrentUser, useUsers } from "@/hooks/useCurrentUser";
 import { Button } from "@/components/common/Button";
 import { Select } from "@/components/common/Select";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
@@ -30,6 +30,8 @@ export function CalendarPage() {
   const [ownerId, setOwnerId] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const { data: users } = useUsers();
+  const { data: me } = useCurrentUser();
+  const isAdmin = me?.role === "admin";
 
   const days = useMemo(() => buildMonthGrid(cursor.getFullYear(), cursor.getMonth()), [cursor]);
   const from = days[0].toISOString();
@@ -69,14 +71,18 @@ export function CalendarPage() {
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-48">
-            <Select
-              placeholder="Todos os responsáveis"
-              options={(users ?? []).map((u) => ({ value: u.id, label: u.name }))}
-              value={ownerId}
-              onChange={(e) => setOwnerId(e.target.value)}
-            />
-          </div>
+          {/* Vendedor só vê as próprias atividades — o backend já restringe
+              isso, então o filtro por responsável só faz sentido pro admin. */}
+          {isAdmin && (
+            <div className="w-48">
+              <Select
+                placeholder="Todos os responsáveis"
+                options={(users ?? []).map((u) => ({ value: u.id, label: u.name }))}
+                value={ownerId}
+                onChange={(e) => setOwnerId(e.target.value)}
+              />
+            </div>
+          )}
           <Button onClick={() => setModalOpen(true)}>+ Nova atividade</Button>
         </div>
       </div>

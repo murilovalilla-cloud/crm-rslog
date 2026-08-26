@@ -141,3 +141,36 @@ export function emptyToNull(value: string | null | undefined): string | null {
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
 }
+
+// ---------------------------------------------------------------------------
+// Controle de visibilidade por responsável ("cada vendedor só vê o que é
+// dele; o administrador vê tudo"). Usado nas rotas de oportunidades e
+// atividades — ver worker/routes/opportunities.ts e worker/routes/activities.ts.
+// ---------------------------------------------------------------------------
+
+export function isAdmin(user: Pick<AuthUser, "role">): boolean {
+  return user.role === "admin";
+}
+
+/**
+ * Carrega o owner_id de uma oportunidade e verifica se o usuário pode
+ * acessá-la: administradores acessam qualquer oportunidade; vendedores só
+ * acessam as que são deles (owner_id === user.id). Centraliza essa checagem
+ * porque ela se repete em vários sub-recursos da oportunidade (histórico,
+ * notas, cotações, cadência).
+ */
+export async function requireOpportunityAccess(
+  db: D1Database,
+  opportunityId: string,
+  user: AuthUser
+): Promise<{ ok: true; ownerId: string | null } | { ok: false; status: 404 | 403; error: string }> {
+  const opp = await db
+    .prepare("SELECT owner_id FROM opportunities WHERE id = ?")
+    .bind(opportunityId)
+    .first<{ owner_id: string | null }>();
+  if (!opp) return { ok: false, status: 404, error: "Oportunidade não encontrada." };
+  if (!isAdmin(user) && opp.owner_id !== user.id) {
+    return { ok: false, status: 403, error: "Você não tem permissão para acessar esta oportunidade." };
+  }
+  return { ok: true, ownerId: opp.owner_id };
+}

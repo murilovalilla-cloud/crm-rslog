@@ -11,7 +11,7 @@ import {
   quoteStatusChangeSchema,
   quoteUpdateSchema,
 } from "../validation/schemas";
-import { diffFields, emptyToNull, genId, nowIso, writeAudit } from "../utils";
+import { diffFields, emptyToNull, genId, nowIso, requireOpportunityAccess, writeAudit } from "../utils";
 
 const quotes = new Hono<AppEnv>();
 
@@ -37,7 +37,13 @@ async function loadQuoteWithItems(db: D1Database, id: string) {
 }
 
 quotes.get("/:id", async (c) => {
-  const data = await loadQuoteWithItems(c.env.DB, c.req.param("id"));
+  const id = c.req.param("id");
+  const quoteRef = await c.env.DB.prepare("SELECT opportunity_id FROM quotes WHERE id = ?").bind(id).first<{ opportunity_id: string }>();
+  if (!quoteRef) return c.json({ error: "Cotação não encontrada." }, 404);
+  const access = await requireOpportunityAccess(c.env.DB, quoteRef.opportunity_id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
+  const data = await loadQuoteWithItems(c.env.DB, id);
   if (!data) return c.json({ error: "Cotação não encontrada." }, 404);
   return c.json({ data });
 });
@@ -46,6 +52,10 @@ quotes.put("/:id", async (c) => {
   const id = c.req.param("id");
   const existing = await c.env.DB.prepare("SELECT * FROM quotes WHERE id = ?").bind(id).first<Record<string, unknown>>();
   if (!existing) return c.json({ error: "Cotação não encontrada." }, 404);
+
+  const user = c.get("user");
+  const access = await requireOpportunityAccess(c.env.DB, existing.opportunity_id as string, user);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
 
   const body = await c.req.json().catch(() => null);
   const parsed = quoteUpdateSchema.safeParse(body);
@@ -63,7 +73,6 @@ quotes.put("/:id", async (c) => {
     "estimated_cost" in normalized ? (normalized.estimated_cost as number | null) : (existing.estimated_cost as number | null);
   normalized.estimated_margin = recalcMargin(nextValue, nextCost);
 
-  const user = c.get("user");
   const now = nowIso();
   const setClauses = Object.keys(normalized)
     .map((key) => `${key} = ?`)
@@ -97,6 +106,10 @@ quotes.patch("/:id/status", async (c) => {
   const quote = await c.env.DB.prepare("SELECT * FROM quotes WHERE id = ?").bind(id).first<QuoteRow & { number: string }>();
   if (!quote) return c.json({ error: "Cotação não encontrada." }, 404);
 
+  const user = c.get("user");
+  const access = await requireOpportunityAccess(c.env.DB, quote.opportunity_id, user);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const body = await c.req.json().catch(() => null);
   const parsed = quoteStatusChangeSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Dados inválidos.", issues: parsed.error.flatten() }, 400);
@@ -106,7 +119,6 @@ quotes.patch("/:id/status", async (c) => {
     return c.json({ error: "Informe o motivo ao marcar a cotação como recusada." }, 400);
   }
 
-  const user = c.get("user");
   const now = nowIso();
 
   await c.env.DB.batch([
@@ -133,10 +145,15 @@ quotes.patch("/:id/status", async (c) => {
 
 quotes.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  const existing = await c.env.DB.prepare("SELECT id, number FROM quotes WHERE id = ?").bind(id).first<{ id: string; number: string }>();
+  const existing = await c.env.DB.prepare("SELECT id, number, opportunity_id FROM quotes WHERE id = ?")
+    .bind(id)
+    .first<{ id: string; number: string; opportunity_id: string }>();
   if (!existing) return c.json({ error: "Cotação não encontrada." }, 404);
 
   const user = c.get("user");
+  const access = await requireOpportunityAccess(c.env.DB, existing.opportunity_id, user);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   await c.env.DB.prepare("DELETE FROM quotes WHERE id = ?").bind(id).run();
   await writeAudit(c.env.DB, { entityType: "quote", entityId: id, action: "delete", oldValue: existing.number, user });
 
@@ -148,15 +165,18 @@ quotes.delete("/:id", async (c) => {
 // -----------------------------------------------------------------------
 quotes.post("/:id/items", async (c) => {
   const quoteId = c.req.param("id");
-  const quote = await c.env.DB.prepare("SELECT id FROM quotes WHERE id = ?").bind(quoteId).first();
+  const quote = await c.env.DB.prepare("SELECT id, opportunity_id FROM quotes WHERE id = ?").bind(quoteId).first<{ id: string; opportunity_id: string }>();
   if (!quote) return c.json({ error: "Cotação não encontrada." }, 404);
+
+  const user = c.get("user");
+  const access = await requireOpportunityAccess(c.env.DB, quote.opportunity_id, user);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
 
   const body = await c.req.json().catch(() => null);
   const parsed = quoteItemCreateSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Dados inválidos.", issues: parsed.error.flatten() }, 400);
   const input = parsed.data;
 
-  const user = c.get("user");
   const now = nowIso();
   const id = genId("qit");
   const total = Math.round(input.quantity * input.unit_value * 100) / 100;
@@ -174,6 +194,11 @@ quotes.post("/:id/items", async (c) => {
 
 quotes.put("/:id/items/:itemId", async (c) => {
   const { id: quoteId, itemId } = c.req.param();
+  const quote = await c.env.DB.prepare("SELECT opportunity_id FROM quotes WHERE id = ?").bind(quoteId).first<{ opportunity_id: string }>();
+  if (!quote) return c.json({ error: "Cotação não encontrada." }, 404);
+  const access = await requireOpportunityAccess(c.env.DB, quote.opportunity_id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const existing = await c.env.DB.prepare("SELECT * FROM quote_items WHERE id = ? AND quote_id = ?")
     .bind(itemId, quoteId)
     .first<{ quantity: number; unit_value: number }>();
@@ -203,6 +228,11 @@ quotes.put("/:id/items/:itemId", async (c) => {
 
 quotes.delete("/:id/items/:itemId", async (c) => {
   const { id: quoteId, itemId } = c.req.param();
+  const quote = await c.env.DB.prepare("SELECT opportunity_id FROM quotes WHERE id = ?").bind(quoteId).first<{ opportunity_id: string }>();
+  if (!quote) return c.json({ error: "Cotação não encontrada." }, 404);
+  const access = await requireOpportunityAccess(c.env.DB, quote.opportunity_id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const existing = await c.env.DB.prepare("SELECT id FROM quote_items WHERE id = ? AND quote_id = ?").bind(itemId, quoteId).first();
   if (!existing) return c.json({ error: "Item não encontrado." }, 404);
 

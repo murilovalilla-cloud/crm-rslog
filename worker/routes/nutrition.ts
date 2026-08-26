@@ -10,13 +10,21 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
 import { nutritionResumeSchema, nutritionUpdateSchema } from "../validation/schemas";
-import { emptyToNull, genId, nowIso, writeAudit } from "../utils";
+import { emptyToNull, genId, isAdmin, nowIso, writeAudit } from "../utils";
 
 const nutrition = new Hono<AppEnv>();
 
 // GET /api/nutrition-leads?status=em_nutricao
 nutrition.get("/", async (c) => {
+  const user = c.get("user");
   const status = c.req.query("status") ?? "em_nutricao";
+  const conditions = ["nl.status = ?"];
+  const params: unknown[] = [status];
+  // Vendedor só vê os leads em nutrição das oportunidades que são dele.
+  if (!isAdmin(user)) {
+    conditions.push("o.owner_id = ?");
+    params.push(user.id);
+  }
   const { results } = await c.env.DB.prepare(
     `SELECT nl.*, o.title as opportunity_title, o.value as opportunity_value, o.owner_id,
             c.name as company_name, u.name as owner_name
@@ -24,25 +32,33 @@ nutrition.get("/", async (c) => {
      JOIN opportunities o ON o.id = nl.opportunity_id
      JOIN companies c ON c.id = o.company_id
      LEFT JOIN users u ON u.id = o.owner_id
-     WHERE nl.status = ?
+     WHERE ${conditions.join(" AND ")}
      ORDER BY (nl.resume_at IS NULL), nl.resume_at ASC`
   )
-    .bind(status)
+    .bind(...params)
     .all();
   return c.json({ data: results });
 });
 
 nutrition.put("/:id", async (c) => {
   const id = c.req.param("id");
-  const existing = await c.env.DB.prepare("SELECT * FROM nutrition_leads WHERE id = ?").bind(id).first<Record<string, unknown>>();
+  const user = c.get("user");
+  const existing = await c.env.DB.prepare(
+    `SELECT nl.*, o.owner_id as opportunity_owner_id FROM nutrition_leads nl
+     JOIN opportunities o ON o.id = nl.opportunity_id WHERE nl.id = ?`
+  )
+    .bind(id)
+    .first<Record<string, unknown> & { opportunity_owner_id: string | null }>();
   if (!existing) return c.json({ error: "Registro de nutrição não encontrado." }, 404);
+  if (!isAdmin(user) && existing.opportunity_owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para editar este lead." }, 403);
+  }
 
   const body = await c.req.json().catch(() => null);
   const parsed = nutritionUpdateSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Dados inválidos.", issues: parsed.error.flatten() }, 400);
   const input = parsed.data;
 
-  const user = c.get("user");
   const now = nowIso();
 
   await c.env.DB.prepare("UPDATE nutrition_leads SET reason = ?, resume_at = ?, updated_at = ?, updated_by = ? WHERE id = ?")
@@ -66,10 +82,17 @@ nutrition.put("/:id", async (c) => {
 // preserva TODO o histórico já registrado (nada é apagado).
 nutrition.post("/:id/resume", async (c) => {
   const id = c.req.param("id");
-  const record = await c.env.DB.prepare("SELECT * FROM nutrition_leads WHERE id = ?")
+  const requestUser = c.get("user");
+  const record = await c.env.DB.prepare(
+    `SELECT nl.*, o.owner_id as opportunity_owner_id FROM nutrition_leads nl
+     JOIN opportunities o ON o.id = nl.opportunity_id WHERE nl.id = ?`
+  )
     .bind(id)
-    .first<{ id: string; opportunity_id: string; status: string }>();
+    .first<{ id: string; opportunity_id: string; status: string; opportunity_owner_id: string | null }>();
   if (!record) return c.json({ error: "Registro de nutrição não encontrado." }, 404);
+  if (!isAdmin(requestUser) && record.opportunity_owner_id !== requestUser.id) {
+    return c.json({ error: "Você não tem permissão para retomar este lead." }, 403);
+  }
   if (record.status === "retomado") return c.json({ error: "Este lead já foi retomado." }, 400);
 
   const body = await c.req.json().catch(() => null);

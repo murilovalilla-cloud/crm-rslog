@@ -22,7 +22,17 @@ const CADENCE_STEP_TO_ACTIVITY_TYPE: Record<string, string> = {
   reuniao: "reuniao",
   followup: "followup",
 };
-import { computeActivityAlert, diffFields, emptyToNull, genId, nowIso, parsePagination, writeAudit } from "../utils";
+import {
+  computeActivityAlert,
+  diffFields,
+  emptyToNull,
+  genId,
+  isAdmin,
+  nowIso,
+  parsePagination,
+  requireOpportunityAccess,
+  writeAudit,
+} from "../utils";
 
 const opportunities = new Hono<AppEnv>();
 
@@ -51,8 +61,12 @@ interface OpportunityRow {
 // ---------------------------------------------------------------------------
 opportunities.get("/kanban", async (c) => {
   const url = new URL(c.req.url);
-  const ownerId = url.searchParams.get("owner_id")?.trim();
+  const user = c.get("user");
   const search = url.searchParams.get("search")?.trim();
+  // Vendedores só enxergam as próprias oportunidades — o filtro de
+  // responsável pedido na URL só é respeitado para administradores, que
+  // continuam podendo olhar o funil de uma pessoa específica.
+  const ownerId = isAdmin(user) ? url.searchParams.get("owner_id")?.trim() : user.id;
 
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -124,9 +138,11 @@ opportunities.get("/kanban", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.get("/", async (c) => {
   const url = new URL(c.req.url);
+  const user = c.get("user");
   const { page, limit, offset } = parsePagination(url);
   const stageId = url.searchParams.get("stage_id")?.trim();
-  const ownerId = url.searchParams.get("owner_id")?.trim();
+  // Mesma regra do Kanban: vendedor só lista as próprias oportunidades.
+  const ownerId = isAdmin(user) ? url.searchParams.get("owner_id")?.trim() : user.id;
   const companyId = url.searchParams.get("company_id")?.trim();
   const status = url.searchParams.get("status")?.trim();
   const search = url.searchParams.get("search")?.trim();
@@ -182,6 +198,7 @@ opportunities.get("/", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.get("/:id", async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const opp = await c.env.DB.prepare(
     `SELECT o.*, c.name as company_name, c.phone as company_phone, s.name as stage_name, u.name as owner_name
      FROM opportunities o
@@ -191,14 +208,17 @@ opportunities.get("/:id", async (c) => {
      WHERE o.id = ?`
   )
     .bind(id)
-    .first();
+    .first<{ owner_id: string | null; company_id: string } & Record<string, unknown>>();
 
   if (!opp) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  if (!isAdmin(user) && opp.owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para acessar esta oportunidade." }, 403);
+  }
 
   const [{ results: contacts }, { results: activities }, { results: history }, { results: notes }, { results: quotes }] =
     await Promise.all([
       c.env.DB.prepare("SELECT * FROM contacts WHERE company_id = ? ORDER BY is_decision_maker DESC, name ASC")
-        .bind((opp as { company_id: string }).company_id)
+        .bind(opp.company_id)
         .all(),
       c.env.DB.prepare("SELECT * FROM activities WHERE opportunity_id = ? ORDER BY due_at ASC").bind(id).all(),
       c.env.DB.prepare(
@@ -311,8 +331,12 @@ opportunities.post("/", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.put("/:id", async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const existing = await c.env.DB.prepare("SELECT * FROM opportunities WHERE id = ?").bind(id).first<Record<string, unknown>>();
   if (!existing) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  if (!isAdmin(user) && existing.owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para editar esta oportunidade." }, 403);
+  }
 
   const body = await c.req.json().catch(() => null);
   const parsed = opportunityUpdateSchema.safeParse(body);
@@ -342,7 +366,6 @@ opportunities.put("/:id", async (c) => {
     normalized[key] = typeof value === "string" ? emptyToNull(value) : value;
   }
 
-  const user = c.get("user");
   if (Object.keys(normalized).length > 0) {
     const now = nowIso();
     const setClauses = Object.keys(normalized)
@@ -377,8 +400,12 @@ opportunities.put("/:id", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.patch("/:id/stage", async (c) => {
   const id = c.req.param("id");
+  const authUser = c.get("user");
   const opp = await c.env.DB.prepare("SELECT * FROM opportunities WHERE id = ?").bind(id).first<OpportunityRow>();
   if (!opp) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  if (!isAdmin(authUser) && opp.owner_id !== authUser.id) {
+    return c.json({ error: "Você não tem permissão para mover esta oportunidade." }, 403);
+  }
 
   const body = await c.req.json().catch(() => null);
   const parsed = opportunityStageChangeSchema.safeParse(body);
@@ -402,7 +429,7 @@ opportunities.patch("/:id/stage", async (c) => {
     .bind(opp.stage_id)
     .first<{ name: string }>();
 
-  const user = c.get("user");
+  const user = authUser;
   const now = nowIso();
 
   let status = "aberta";
@@ -460,10 +487,15 @@ opportunities.patch("/:id/stage", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  const existing = await c.env.DB.prepare("SELECT id, title FROM opportunities WHERE id = ?").bind(id).first<{ id: string; title: string }>();
-  if (!existing) return c.json({ error: "Oportunidade não encontrada." }, 404);
-
   const user = c.get("user");
+  const existing = await c.env.DB.prepare("SELECT id, title, owner_id FROM opportunities WHERE id = ?")
+    .bind(id)
+    .first<{ id: string; title: string; owner_id: string | null }>();
+  if (!existing) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  if (!isAdmin(user) && existing.owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para excluir esta oportunidade." }, 403);
+  }
+
   await c.env.DB.prepare("DELETE FROM opportunities WHERE id = ?").bind(id).run();
   await writeAudit(c.env.DB, { entityType: "opportunity", entityId: id, action: "delete", oldValue: existing.title, user });
 
@@ -475,6 +507,9 @@ opportunities.delete("/:id", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.get("/:id/history", async (c) => {
   const id = c.req.param("id");
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const { results } = await c.env.DB.prepare(
     `SELECT h.*, u.name as created_by_name, fs.name as from_stage_name, ts.name as to_stage_name
      FROM activity_history h
@@ -490,8 +525,8 @@ opportunities.get("/:id/history", async (c) => {
 
 opportunities.post("/:id/history", async (c) => {
   const id = c.req.param("id");
-  const opp = await c.env.DB.prepare("SELECT id FROM opportunities WHERE id = ?").bind(id).first();
-  if (!opp) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
 
   const body = await c.req.json().catch(() => null);
   const parsed = historyCreateSchema.safeParse(body);
@@ -519,6 +554,9 @@ opportunities.post("/:id/history", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.get("/:id/quotes", async (c) => {
   const id = c.req.param("id");
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const { results } = await c.env.DB.prepare(
     `SELECT q.*, (SELECT COUNT(*) FROM quote_items qi WHERE qi.quote_id = q.id) as items_count
      FROM quotes q WHERE q.opportunity_id = ? ORDER BY q.created_at DESC`
@@ -530,6 +568,9 @@ opportunities.get("/:id/quotes", async (c) => {
 
 opportunities.post("/:id/quotes", async (c) => {
   const id = c.req.param("id");
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const opp = await c.env.DB.prepare("SELECT id, company_id FROM opportunities WHERE id = ?")
     .bind(id)
     .first<{ id: string; company_id: string }>();
@@ -608,6 +649,9 @@ opportunities.post("/:id/quotes", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.get("/:id/cadence", async (c) => {
   const id = c.req.param("id");
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const { results } = await c.env.DB.prepare(
     `SELECT lc.*, t.name as template_name
      FROM lead_cadences lc JOIN cadence_templates t ON t.id = lc.cadence_template_id
@@ -622,10 +666,9 @@ opportunities.get("/:id/cadence", async (c) => {
 // gerando automaticamente uma atividade agendada para cada passo.
 opportunities.post("/:id/cadence", async (c) => {
   const id = c.req.param("id");
-  const opp = await c.env.DB.prepare("SELECT id, owner_id FROM opportunities WHERE id = ?")
-    .bind(id)
-    .first<{ id: string; owner_id: string | null }>();
-  if (!opp) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+  const opp = { id, owner_id: access.ownerId };
 
   const body = await c.req.json().catch(() => null);
   const parsed = applyCadenceSchema.safeParse(body);
@@ -698,6 +741,9 @@ opportunities.post("/:id/cadence", async (c) => {
 
 opportunities.patch("/:id/cadence/:leadCadenceId/cancel", async (c) => {
   const { id, leadCadenceId } = c.req.param();
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const leadCadence = await c.env.DB.prepare("SELECT id FROM lead_cadences WHERE id = ? AND opportunity_id = ?")
     .bind(leadCadenceId, id)
     .first();
@@ -716,6 +762,9 @@ opportunities.patch("/:id/cadence/:leadCadenceId/cancel", async (c) => {
 // ---------------------------------------------------------------------------
 opportunities.get("/:id/notes", async (c) => {
   const id = c.req.param("id");
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
   const { results } = await c.env.DB.prepare(
     `SELECT n.*, u.name as created_by_name FROM notes n LEFT JOIN users u ON u.id = n.created_by
      WHERE n.opportunity_id = ? ORDER BY n.created_at DESC`
@@ -727,8 +776,8 @@ opportunities.get("/:id/notes", async (c) => {
 
 opportunities.post("/:id/notes", async (c) => {
   const id = c.req.param("id");
-  const opp = await c.env.DB.prepare("SELECT id FROM opportunities WHERE id = ?").bind(id).first();
-  if (!opp) return c.json({ error: "Oportunidade não encontrada." }, 404);
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
 
   const body = await c.req.json().catch(() => null);
   const parsed = noteCreateSchema.safeParse(body);
@@ -750,8 +799,11 @@ opportunities.post("/:id/notes", async (c) => {
 });
 
 opportunities.put("/:id/notes/:noteId", async (c) => {
-  const { noteId } = c.req.param();
-  const existing = await c.env.DB.prepare("SELECT * FROM notes WHERE id = ?").bind(noteId).first();
+  const { id, noteId } = c.req.param();
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
+  const existing = await c.env.DB.prepare("SELECT * FROM notes WHERE id = ? AND opportunity_id = ?").bind(noteId, id).first();
   if (!existing) return c.json({ error: "Nota não encontrada." }, 404);
 
   const body = await c.req.json().catch(() => null);
@@ -769,8 +821,11 @@ opportunities.put("/:id/notes/:noteId", async (c) => {
 });
 
 opportunities.delete("/:id/notes/:noteId", async (c) => {
-  const { noteId } = c.req.param();
-  const existing = await c.env.DB.prepare("SELECT id FROM notes WHERE id = ?").bind(noteId).first();
+  const { id, noteId } = c.req.param();
+  const access = await requireOpportunityAccess(c.env.DB, id, c.get("user"));
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+
+  const existing = await c.env.DB.prepare("SELECT id FROM notes WHERE id = ? AND opportunity_id = ?").bind(noteId, id).first();
   if (!existing) return c.json({ error: "Nota não encontrada." }, 404);
 
   await c.env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(noteId).run();

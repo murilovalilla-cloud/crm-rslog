@@ -2,8 +2,9 @@
 
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
+import { requireAdmin } from "../auth";
 import { importCommitSchema, importPreviewSchema } from "../validation/schemas";
-import { genId, nowIso } from "../utils";
+import { genId, isAdmin, nowIso } from "../utils";
 import { processImportRow, summarize, type ImportRow } from "../import";
 import { buildExportResponse, type ExportColumn, type ExportFormat } from "../export";
 
@@ -142,8 +143,11 @@ const OPPORTUNITY_COLUMNS: ExportColumn[] = [
 
 importExport.get("/export/opportunities", async (c) => {
   const format = parseFormat(c);
+  const user = c.get("user");
   const stageId = c.req.query("stage_id")?.trim();
-  const ownerId = c.req.query("owner_id")?.trim();
+  // Mesma regra de visibilidade do Kanban/lista: vendedor só exporta as
+  // próprias oportunidades, mesmo que peça outro owner_id na URL.
+  const ownerId = isAdmin(user) ? c.req.query("owner_id")?.trim() : user.id;
   const status = c.req.query("status")?.trim();
   const search = c.req.query("search")?.trim();
   const conditions: string[] = [];
@@ -192,10 +196,11 @@ const ACTIVITY_COLUMNS: ExportColumn[] = [
 
 importExport.get("/export/activities", async (c) => {
   const format = parseFormat(c);
+  const user = c.get("user");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const status = c.req.query("status")?.trim();
-  const ownerId = c.req.query("owner_id")?.trim();
+  const ownerId = isAdmin(user) ? c.req.query("owner_id")?.trim() : user.id;
   const conditions: string[] = [];
   const params: unknown[] = [];
   if (from) {
@@ -244,14 +249,28 @@ const QUOTE_COLUMNS: ExportColumn[] = [
 
 importExport.get("/export/quotes", async (c) => {
   const format = parseFormat(c);
+  const user = c.get("user");
   const status = c.req.query("status")?.trim();
-  const where = status ? "WHERE q.status = ?" : "";
-  const stmt = c.env.DB.prepare(
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (status) {
+    conditions.push("q.status = ?");
+    params.push(status);
+  }
+  // Cotação não tem dono próprio — a visibilidade segue a da oportunidade a
+  // que ela pertence.
+  if (!isAdmin(user)) {
+    conditions.push("o.owner_id = ?");
+    params.push(user.id);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { results } = await c.env.DB.prepare(
     `SELECT q.*, comp.name as company_name, o.title as opportunity_title
      FROM quotes q JOIN companies comp ON comp.id = q.company_id JOIN opportunities o ON o.id = q.opportunity_id
      ${where} ORDER BY q.created_at DESC`
-  );
-  const { results } = await (status ? stmt.bind(status) : stmt).all<Record<string, unknown>>();
+  )
+    .bind(...params)
+    .all<Record<string, unknown>>();
   return buildExportResponse(results, QUOTE_COLUMNS, format, "cotacoes");
 });
 
@@ -267,21 +286,31 @@ const NUTRITION_COLUMNS: ExportColumn[] = [
 
 importExport.get("/export/nutrition-leads", async (c) => {
   const format = parseFormat(c);
+  const user = c.get("user");
   const status = c.req.query("status")?.trim() ?? "em_nutricao";
+  const conditions: string[] = ["nl.status = ?"];
+  const params: unknown[] = [status];
+  // Lead em nutrição não tem dono próprio — a visibilidade segue a da
+  // oportunidade a que ele pertence.
+  if (!isAdmin(user)) {
+    conditions.push("o.owner_id = ?");
+    params.push(user.id);
+  }
+  const where = `WHERE ${conditions.join(" AND ")}`;
   const { results } = await c.env.DB.prepare(
     `SELECT nl.*, o.title as opportunity_title, comp.name as company_name, u.name as owner_name
      FROM nutrition_leads nl JOIN opportunities o ON o.id = nl.opportunity_id JOIN companies comp ON comp.id = o.company_id
      LEFT JOIN users u ON u.id = o.owner_id
-     WHERE nl.status = ? ORDER BY nl.resume_at ASC`
+     ${where} ORDER BY nl.resume_at ASC`
   )
-    .bind(status)
+    .bind(...params)
     .all<Record<string, unknown>>();
   return buildExportResponse(results, NUTRITION_COLUMNS, format, "nutricao");
 });
 
 // JSON de backup: dump completo das tabelas de negócio (sem tabelas de
 // sistema como audit_log/import_history, que não fazem sentido restaurar).
-importExport.get("/export/backup", async (c) => {
+importExport.get("/export/backup", requireAdmin, async (c) => {
   const tables = [
     "users",
     "companies",

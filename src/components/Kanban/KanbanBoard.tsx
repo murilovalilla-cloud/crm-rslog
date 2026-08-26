@@ -3,7 +3,7 @@ import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } f
 import { Search, X } from "lucide-react";
 import { useKanban, useMoveOpportunityStage, useCreateOpportunity } from "@/hooks/useOpportunities";
 import { usePipelineStages } from "@/hooks/usePipelineStages";
-import { useUsers } from "@/hooks/useCurrentUser";
+import { useCurrentUser, useUsers } from "@/hooks/useCurrentUser";
 import { KanbanColumn } from "./KanbanColumn";
 import { OpportunityDrawer } from "@/components/Opportunities/OpportunityDrawer";
 import { OpportunityForm } from "@/components/Opportunities/OpportunityForm";
@@ -21,6 +21,8 @@ export function KanbanBoard() {
   const { data, isLoading, error } = useKanban({ search: search || undefined, owner_id: ownerId || undefined });
   const { data: stages } = usePipelineStages();
   const { data: users } = useUsers();
+  const { data: me } = useCurrentUser();
+  const isAdmin = me?.role === "admin";
   const moveStage = useMoveOpportunityStage();
   const createOpportunity = useCreateOpportunity();
 
@@ -81,14 +83,18 @@ export function KanbanBoard() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="w-full sm:w-52">
-          <Select
-            placeholder="Todos os responsáveis"
-            options={(users ?? []).map((u) => ({ value: u.id, label: u.name }))}
-            value={ownerId}
-            onChange={(e) => setOwnerId(e.target.value)}
-          />
-        </div>
+        {/* Vendedor só vê as próprias oportunidades — o backend já restringe
+            isso, então o filtro por responsável só faz sentido pro admin. */}
+        {isAdmin && (
+          <div className="w-full sm:w-52">
+            <Select
+              placeholder="Todos os responsáveis"
+              options={(users ?? []).map((u) => ({ value: u.id, label: u.name }))}
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+            />
+          </div>
+        )}
 
         {hasActiveFilters && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -97,7 +103,7 @@ export function KanbanBoard() {
                 “{search}”
               </span>
             )}
-            {ownerName && (
+            {isAdmin && ownerName && (
               <span className="inline-flex items-center gap-1 rounded-full bg-navy-50 px-2.5 py-1 text-xs font-medium text-navy-700">
                 {ownerName}
               </span>

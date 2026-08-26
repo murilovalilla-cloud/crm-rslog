@@ -1,5 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 import { useImportPreview, useImportCommit, useImportHistory, triggerExport, type ExportEntity, type ExportFormat } from "@/hooks/useImportExport";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { IMPORT_ENTITY_LABELS, IMPORT_ENTITY_NOTES, IMPORT_FIELDS } from "@/lib/importFields";
 import { applyColumnMapping, guessMapping, parseSpreadsheetFile, type ParsedSheet } from "@/lib/spreadsheet";
 import { Button } from "@/components/common/Button";
@@ -315,6 +316,8 @@ function ExportPanel() {
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [pending, setPending] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const { data: me } = useCurrentUser();
+  const isAdmin = me?.role === "admin";
 
   const run = async (entity: ExportEntity) => {
     setPending(entity);
@@ -332,7 +335,11 @@ function ExportPanel() {
     <div className="card space-y-4 p-4">
       <div>
         <h2 className="text-base font-semibold text-slate-800">Exportar dados</h2>
-        <p className="text-sm text-slate-500">Baixe os dados do CRM em CSV, XLSX ou como backup completo em JSON.</p>
+        <p className="text-sm text-slate-500">
+          {isAdmin
+            ? "Baixe os dados do CRM em CSV, XLSX ou como backup completo em JSON."
+            : "Baixe seus próprios dados em CSV ou XLSX."}
+        </p>
       </div>
 
       <div className="flex items-center gap-4">
@@ -351,9 +358,11 @@ function ExportPanel() {
             Exportar {item.label}
           </Button>
         ))}
-        <Button variant="secondary" loading={pending === "backup"} onClick={() => run("backup")}>
-          Backup completo (JSON)
-        </Button>
+        {isAdmin && (
+          <Button variant="secondary" loading={pending === "backup"} onClick={() => run("backup")}>
+            Backup completo (JSON)
+          </Button>
+        )}
       </div>
 
       {exportError && <p className="text-sm text-red-600">{exportError}</p>}

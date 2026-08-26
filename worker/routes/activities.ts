@@ -3,7 +3,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
 import { activityCompleteSchema, activityCreateSchema, activityUpdateSchema } from "../validation/schemas";
-import { computeActivityAlert, emptyToNull, genId, nowIso, writeAudit } from "../utils";
+import { computeActivityAlert, emptyToNull, genId, isAdmin, nowIso, requireOpportunityAccess, writeAudit } from "../utils";
 
 const activities = new Hono<AppEnv>();
 
@@ -33,9 +33,12 @@ interface ActivityRow {
 // Alimenta o calendário. "from"/"to" são datas ISO (inclusive).
 activities.get("/", async (c) => {
   const url = new URL(c.req.url);
+  const user = c.get("user");
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
-  const ownerId = url.searchParams.get("owner_id")?.trim();
+  // Vendedores só veem as próprias atividades no calendário; administradores
+  // continuam podendo filtrar por qualquer responsável.
+  const ownerId = isAdmin(user) ? url.searchParams.get("owner_id")?.trim() : user.id;
   const status = url.searchParams.get("status")?.trim();
   const opportunityId = url.searchParams.get("opportunity_id")?.trim();
 
@@ -84,6 +87,7 @@ activities.get("/", async (c) => {
 });
 
 activities.get("/:id", async (c) => {
+  const user = c.get("user");
   const activity = await c.env.DB.prepare(
     `SELECT a.*, o.title as opportunity_title, c.name as company_name, u.name as owner_name
      FROM activities a
@@ -96,6 +100,9 @@ activities.get("/:id", async (c) => {
     .first<ActivityRow & Record<string, unknown>>();
 
   if (!activity) return c.json({ error: "Atividade não encontrada." }, 404);
+  if (!isAdmin(user) && activity.owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para acessar esta atividade." }, 403);
+  }
   const alert = computeActivityAlert(activity);
   return c.json({ data: { ...activity, alert_level: alert.level, overdue_days: alert.overdueDays } });
 });
@@ -106,10 +113,9 @@ activities.post("/", async (c) => {
   if (!parsed.success) return c.json({ error: "Dados inválidos.", issues: parsed.error.flatten() }, 400);
 
   const input = parsed.data;
-  const opp = await c.env.DB.prepare("SELECT id FROM opportunities WHERE id = ?").bind(input.opportunity_id).first();
-  if (!opp) return c.json({ error: "Oportunidade informada não existe." }, 400);
-
   const user = c.get("user");
+  const access = await requireOpportunityAccess(c.env.DB, input.opportunity_id, user);
+  if (!access.ok) return c.json({ error: access.error }, access.status);
   const id = genId("act");
   const now = nowIso();
 
@@ -140,8 +146,12 @@ activities.post("/", async (c) => {
 
 activities.put("/:id", async (c) => {
   const id = c.req.param("id");
+  const authUser = c.get("user");
   const existing = await c.env.DB.prepare("SELECT * FROM activities WHERE id = ?").bind(id).first<Record<string, unknown>>();
   if (!existing) return c.json({ error: "Atividade não encontrada." }, 404);
+  if (!isAdmin(authUser) && existing.owner_id !== authUser.id) {
+    return c.json({ error: "Você não tem permissão para editar esta atividade." }, 403);
+  }
 
   const body = await c.req.json().catch(() => null);
   const parsed = activityUpdateSchema.safeParse(body);
@@ -158,7 +168,7 @@ activities.put("/:id", async (c) => {
     }
   }
 
-  const user = c.get("user");
+  const user = authUser;
   if (Object.keys(normalized).length > 0) {
     const now = nowIso();
     const setClauses = Object.keys(normalized)
@@ -181,16 +191,18 @@ activities.put("/:id", async (c) => {
 // histórico da oportunidade (aparece na linha do tempo do card).
 activities.patch("/:id/complete", async (c) => {
   const id = c.req.param("id");
+  const user = c.get("user");
   const activity = await c.env.DB.prepare("SELECT * FROM activities WHERE id = ?").bind(id).first<ActivityRow>();
   if (!activity) return c.json({ error: "Atividade não encontrada." }, 404);
+  if (!isAdmin(user) && activity.owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para concluir esta atividade." }, 403);
+  }
   if (activity.status === "concluida") return c.json({ data: activity });
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = activityCompleteSchema.safeParse(body ?? {});
   if (!parsed.success) return c.json({ error: "Dados inválidos.", issues: parsed.error.flatten() }, 400);
   const input = parsed.data;
-
-  const user = c.get("user");
   const now = nowIso();
   const completedAt = input.completed_at ? new Date(input.completed_at).toISOString() : now;
   const label = TYPE_LABELS[activity.type] ?? "Atividade";
@@ -223,10 +235,15 @@ activities.patch("/:id/complete", async (c) => {
 
 activities.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  const existing = await c.env.DB.prepare("SELECT id, title FROM activities WHERE id = ?").bind(id).first<{ id: string; title: string }>();
-  if (!existing) return c.json({ error: "Atividade não encontrada." }, 404);
-
   const user = c.get("user");
+  const existing = await c.env.DB.prepare("SELECT id, title, owner_id FROM activities WHERE id = ?")
+    .bind(id)
+    .first<{ id: string; title: string; owner_id: string | null }>();
+  if (!existing) return c.json({ error: "Atividade não encontrada." }, 404);
+  if (!isAdmin(user) && existing.owner_id !== user.id) {
+    return c.json({ error: "Você não tem permissão para excluir esta atividade." }, 403);
+  }
+
   await c.env.DB.prepare("DELETE FROM activities WHERE id = ?").bind(id).run();
   await writeAudit(c.env.DB, { entityType: "activity", entityId: id, action: "delete", oldValue: existing.title, user });
 
