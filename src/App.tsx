@@ -9,8 +9,6 @@ import { CompaniesPage } from "@/pages/CompaniesPage";
 import { CalendarPage } from "@/pages/CalendarPage";
 import { CadencesPage } from "@/pages/CadencesPage";
 import { NutritionPage } from "@/pages/NutritionPage";
-import { UsersPage } from "@/pages/UsersPage";
-import { AuditLogPage } from "@/pages/AuditLogPage";
 
 // Carregada sob demanda: esta página embute a biblioteca de planilhas
 // (SheetJS), que é pesada e só é necessária quando o usuário realmente
@@ -28,8 +26,6 @@ export function App() {
           <Route path="/calendario" element={<CalendarPage />} />
           <Route path="/cadencias" element={<CadencesPage />} />
           <Route path="/nutricao" element={<NutritionPage />} />
-          <Route path="/usuarios" element={<UsersPage />} />
-          <Route path="/auditoria" element={<AuditLogPage />} />
           <Route
             path="/importar-exportar"
             element={

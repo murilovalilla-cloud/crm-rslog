@@ -8,11 +8,6 @@ const TITLES: Record<string, string> = {
   "/funil": "Funil de vendas",
   "/empresas": "Empresas",
   "/calendario": "Calendário",
-  "/cadencias": "Cadências de prospecção",
-  "/nutricao": "Nutrição de leads",
-  "/importar-exportar": "Importar / Exportar",
-  "/usuarios": "Usuários da equipe",
-  "/auditoria": "Trilha de auditoria",
 };
 
 function getStoredCollapsed(): boolean {

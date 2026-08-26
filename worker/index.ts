@@ -8,7 +8,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./types";
 import { authMiddleware } from "./auth";
-import { securityHeaders } from "./securityHeaders";
 import users from "./routes/users";
 import companies from "./routes/companies";
 import contacts from "./routes/contacts";
@@ -21,12 +20,8 @@ import cadences from "./routes/cadences";
 import nutrition from "./routes/nutrition";
 import dashboard from "./routes/dashboard";
 import importExport from "./routes/importExport";
-import auditLog from "./routes/auditLog";
 
 const app = new Hono<AppEnv>();
-
-// Aplica os cabeçalhos de segurança a toda resposta (API e frontend estático).
-app.use("*", securityHeaders);
 
 // Healthcheck público (sem autenticação) — útil para checar se o deploy subiu.
 app.get("/api/health", (c) => c.json({ ok: true, environment: c.env.ENVIRONMENT }));
@@ -47,7 +42,6 @@ app.route("/api/quotes", quotes);
 app.route("/api/cadence-templates", cadences);
 app.route("/api/nutrition-leads", nutrition);
 app.route("/api/dashboard", dashboard);
-app.route("/api/audit-log", auditLog);
 app.route("/api", importExport);
 
 // Com `run_worker_first: true` (ver wrangler.jsonc), toda requisição passa

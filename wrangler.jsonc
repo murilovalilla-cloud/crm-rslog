@@ -1,0 +1,57 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Nome do Worker no Cloudflare. Pode ser alterado antes do primeiro deploy.
+  "name": "crm-rslog",
+  "main": "worker/index.ts",
+  "compatibility_date": "2024-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Frontend compilado (Vite) servido como Static Assets pelo mesmo Worker.
+  // Requisições que não baterem em nenhuma rota da API caem no index.html (SPA).
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // "run_worker_first": true faz TODA requisição passar pelo Worker antes
+    // dos Static Assets. Isso é necessário para que /api/* chegue ao Hono —
+    // caso contrário, cairia direto no fallback de SPA (index.html), já que
+    // não corresponde a nenhum arquivo estático. Em troca, o próprio Worker
+    // é responsável por repassar as demais requisições para `env.ASSETS`
+    // (ver worker/index.ts > app.notFound).
+    "run_worker_first": true
+  },
+
+  // Banco de dados Cloudflare D1.
+  // Depois de rodar `npm run db:create`, substitua "database_id" pelo ID retornado.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "crm-rslog-db",
+      "database_id": "SUBSTITUA_PELO_ID_DO_BANCO_D1",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Variáveis não secretas. Segredos reais (tokens, senhas) NUNCA vão aqui —
+  // use `wrangler secret put` ou o painel do Cloudflare. Veja .dev.vars.example
+  // para variáveis de desenvolvimento local.
+  "vars": {
+    "ENVIRONMENT": "production",
+    // Domínio de equipe e AUD do Cloudflare Access. Preenchidos, o Worker
+    // passa a validar também a assinatura do JWT do Access (defesa em
+    // profundidade — ver worker/accessJwt.ts) além do cabeçalho de e-mail.
+    // Enquanto ficarem com os valores de exemplo abaixo, essa checagem
+    // extra fica desligada e o CRM segue funcionando normalmente.
+    // Ex.: "CF_ACCESS_TEAM_DOMAIN": "rslog.cloudflareaccess.com"
+    "CF_ACCESS_TEAM_DOMAIN": "SUBSTITUA_PELO_SEU_TEAM_DOMAIN",
+    "CF_ACCESS_AUD": "SUBSTITUA_PELO_AUD_DA_APLICACAO_ACCESS"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // R2 (armazenamento futuro de anexos de cotações). Descomente quando for usar:
+  // "r2_buckets": [
+  //   { "binding": "ATTACHMENTS", "bucket_name": "crm-rslog-attachments" }
+  // ]
+}

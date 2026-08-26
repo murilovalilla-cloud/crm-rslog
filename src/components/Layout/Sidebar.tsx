@@ -1,6 +1,5 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -9,14 +8,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
 }
 
-interface NavItem {
-  to: string;
-  label: string;
-  icon: string;
-  end?: boolean;
-}
-
-const NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: "📊", end: true },
   { to: "/funil", label: "Funil de vendas", icon: "🗂️" },
   { to: "/empresas", label: "Empresas", icon: "🏢" },
@@ -26,18 +18,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/importar-exportar", label: "Importar/Exportar", icon: "📁" },
 ];
 
-// Itens visíveis apenas para administradores (gestão de equipe e auditoria).
-// O backend já impõe essa restrição em cada rota (requireAdmin); aqui é só
-// para não poluir o menu de vendedores com telas às quais não têm acesso.
-const ADMIN_NAV_ITEMS: NavItem[] = [
-  { to: "/usuarios", label: "Usuários", icon: "👥" },
-  { to: "/auditoria", label: "Auditoria", icon: "🧾" },
-];
-
 export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: SidebarProps) {
-  const { data: me } = useCurrentUser();
-  const items = me?.role === "admin" ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS] : NAV_ITEMS;
-
   return (
     <>
       {mobileOpen && (
@@ -64,7 +45,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: Side
         </div>
 
         <nav className="flex-1 space-y-1 px-2 py-2">
-          {items.map((item) => (
+          {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
