@@ -36,8 +36,12 @@
   // para variáveis de desenvolvimento local.
   "vars": {
     "ENVIRONMENT": "production",
-    // Domínio de equipe do Cloudflare Access, usado futuramente para validar o JWT.
-    // Ex.: "rslog.cloudflareaccess.com"
+    // Domínio de equipe e AUD do Cloudflare Access. Preenchidos, o Worker
+    // passa a validar também a assinatura do JWT do Access (defesa em
+    // profundidade — ver worker/accessJwt.ts) além do cabeçalho de e-mail.
+    // Enquanto ficarem com os valores de exemplo abaixo, essa checagem
+    // extra fica desligada e o CRM segue funcionando normalmente.
+    // Ex.: "CF_ACCESS_TEAM_DOMAIN": "rslog.cloudflareaccess.com"
     "CF_ACCESS_TEAM_DOMAIN": "SUBSTITUA_PELO_SEU_TEAM_DOMAIN",
     "CF_ACCESS_AUD": "SUBSTITUA_PELO_AUD_DA_APLICACAO_ACCESS"
   },

@@ -1,0 +1,19 @@
+# Copie este arquivo para ".dev.vars" (mesma pasta) para desenvolvimento local.
+# NUNCA coloque valores reais/secretos neste arquivo de exemplo nem faça commit de ".dev.vars".
+# O arquivo ".dev.vars" já está ignorado pelo .gitignore.
+
+# Ambiente atual — em "development" o backend aceita o cabeçalho X-Dev-User-Email
+# como identificação do usuário logado, já que o Cloudflare Access não roda em localhost.
+ENVIRONMENT=development
+
+# E-mail "logado" usado apenas em desenvolvimento local (sem Cloudflare Access).
+# Deve corresponder a um usuário existente na tabela `users` (veja o seed de dados).
+DEV_USER_EMAIL=admin@rslog.com.br
+
+# Domínio de equipe do Cloudflare Access (ex.: rslog.cloudflareaccess.com).
+# Usado na Etapa 3 para validar o JWT de Access. Deixe em branco em dev local.
+CF_ACCESS_TEAM_DOMAIN=
+
+# AUD (Application Audience) da aplicação configurada no Cloudflare Access.
+# Encontrado em Zero Trust > Access > Applications > sua aplicação.
+CF_ACCESS_AUD=
