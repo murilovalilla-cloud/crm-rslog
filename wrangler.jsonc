@@ -26,7 +26,7 @@
     {
       "binding": "DB",
       "database_name": "crm-rslog-db",
-      "database_id": "SUBSTITUA_PELO_ID_DO_BANCO_D1",
+      "database_id": "510a6567-4121-4902-b3c8-b99b1c551fc5",
       "migrations_dir": "migrations"
     }
   ],
@@ -42,8 +42,8 @@
     // Enquanto ficarem com os valores de exemplo abaixo, essa checagem
     // extra fica desligada e o CRM segue funcionando normalmente.
     // Ex.: "CF_ACCESS_TEAM_DOMAIN": "rslog.cloudflareaccess.com"
-    "CF_ACCESS_TEAM_DOMAIN": "SUBSTITUA_PELO_SEU_TEAM_DOMAIN",
-    "CF_ACCESS_AUD": "SUBSTITUA_PELO_AUD_DA_APLICACAO_ACCESS"
+    "CF_ACCESS_TEAM_DOMAIN": "steep-brook-3639.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "a0a9e566ef81cd6bf6552ff54f095b4c39f62155a5f34e40600fbb9e50c456b9"
   },
 
   "observability": {
