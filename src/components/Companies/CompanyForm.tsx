@@ -20,6 +20,14 @@ const BR_STATES = [
   "RJ","RN","RS","RO","RR","SC","SP","SE","TO",
 ].map((uf) => ({ value: uf, label: uf }));
 
+const LEAD_SOURCE_OPTIONS = [
+  { value: "Prospecção ativa", label: "Prospecção ativa" },
+  { value: "Indicação de cliente", label: "Indicação de cliente" },
+  { value: "Instagram", label: "Instagram" },
+  { value: "Google", label: "Google" },
+  { value: "Facebook", label: "Facebook" },
+];
+
 export function CompanyForm({ initial, onSubmit, onCancel, submitting, serverError }: CompanyFormProps) {
   const { data: users } = useUsers();
   const [values, setValues] = useState<CompanyFormValues>({
@@ -105,9 +113,10 @@ export function CompanyForm({ initial, onSubmit, onCancel, submitting, serverErr
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Input
+        <Select
           label="Origem do lead"
-          placeholder="Indicação, site, cold call..."
+          placeholder="Selecione"
+          options={LEAD_SOURCE_OPTIONS}
           value={values.source}
           onChange={(e) => setValues((v) => ({ ...v, source: e.target.value }))}
         />

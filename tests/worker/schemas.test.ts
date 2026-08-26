@@ -5,6 +5,8 @@ import {
   contactCreateSchema,
   opportunityStageChangeSchema,
   pipelineStageReorderSchema,
+  userCreateSchema,
+  userUpdateSchema,
 } from "../../worker/validation/schemas";
 
 describe("companyCreateSchema", () => {
@@ -102,6 +104,68 @@ describe("pipelineStageReorderSchema", () => {
         { id: "stage-02", position: 1 },
       ],
     });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("userCreateSchema", () => {
+  it("rejeita usuário sem nome nem e-mail", () => {
+    const result = userCreateSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita e-mail em formato inválido", () => {
+    const result = userCreateSchema.safeParse({ name: "Fulano de Tal", email: "não-é-um-email" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita papel fora do enum permitido", () => {
+    const result = userCreateSchema.safeParse({
+      name: "Fulano de Tal",
+      email: "fulano@rslog.com.br",
+      role: "gerente",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("aplica papel 'vendedor' e active=true como padrão", () => {
+    const result = userCreateSchema.safeParse({ name: "Fulano de Tal", email: "fulano@rslog.com.br" });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.role).toBe("vendedor");
+      expect(result.data.active).toBe(true);
+    }
+  });
+
+  it("aceita um usuário admin explícito", () => {
+    const result = userCreateSchema.safeParse({
+      name: "Fulano de Tal",
+      email: "fulano@rslog.com.br",
+      role: "admin",
+      active: false,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("userUpdateSchema", () => {
+  it("aceita objeto vazio (nenhum campo alterado)", () => {
+    const result = userUpdateSchema.safeParse({});
+    expect(result.success).toBe(true);
+  });
+
+  it("rejeita e-mail em formato inválido", () => {
+    const result = userUpdateSchema.safeParse({ email: "não-é-um-email" });
+    expect(result.success).toBe(false);
+  });
+
+  it("aceita atualização parcial apenas do papel", () => {
+    const result = userUpdateSchema.safeParse({ role: "admin" });
+    expect(result.success).toBe(true);
+  });
+
+  it("aceita desativar um usuário", () => {
+    const result = userUpdateSchema.safeParse({ active: false });
     expect(result.success).toBe(true);
   });
 });

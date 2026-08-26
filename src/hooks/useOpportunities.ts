@@ -51,6 +51,7 @@ function toPayload(values: OpportunityFormValues) {
     owner_id: values.owner_id || null,
     value: values.value ? parseBRLNumber(values.value) : null,
     expected_close_date: values.expected_close_date || null,
+    decision_maker_name: values.decision_maker_name || null,
   };
 }
 

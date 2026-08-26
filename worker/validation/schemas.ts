@@ -85,6 +85,10 @@ export const opportunityCreateSchema = z.object({
   owner_id: z.string().trim().optional().nullable(),
   value: z.number().nonnegative("Valor não pode ser negativo").optional().nullable(),
   expected_close_date: z.string().trim().optional().nullable(),
+  // Nome do decisor digitado livremente — usado quando ainda não há um
+  // contato cadastrado na empresa (ver contact_id, que continua existindo
+  // para quando o contato já estiver na base).
+  decision_maker_name: optionalString,
 });
 export const opportunityUpdateSchema = opportunityCreateSchema.partial();
 
@@ -240,3 +244,21 @@ export const importPreviewSchema = z.object({
 });
 
 export const importCommitSchema = importPreviewSchema;
+
+// ---------------------------------------------------------------------------
+// Usuários (gestão de equipe — Etapa 3)
+// ---------------------------------------------------------------------------
+export const userRoleEnum = z.enum(["admin", "vendedor"]);
+
+export const userCreateSchema = z.object({
+  name: z.string().trim().min(2, "Nome é obrigatório (mínimo 2 caracteres)").max(255),
+  email: z.string().trim().min(3, "E-mail é obrigatório").max(255).email("E-mail inválido"),
+  role: userRoleEnum.optional().default("vendedor"),
+  active: z.boolean().optional().default(true),
+});
+export const userUpdateSchema = z.object({
+  name: z.string().trim().min(2, "Nome é obrigatório (mínimo 2 caracteres)").max(255).optional(),
+  email: z.string().trim().min(3).max(255).email("E-mail inválido").optional(),
+  role: userRoleEnum.optional(),
+  active: z.boolean().optional(),
+});

@@ -26,6 +26,7 @@ export function OpportunityForm({ initial, fixedCompanyId, onSubmit, onCancel, s
     owner_id: initial?.owner_id ?? "",
     value: initial?.value !== undefined && initial?.value !== null ? String(initial.value) : "",
     expected_close_date: initial?.expected_close_date?.slice(0, 10) ?? "",
+    decision_maker_name: initial?.decision_maker_name ?? "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { data: contacts } = useContacts(values.company_id || null);
@@ -63,8 +64,8 @@ export function OpportunityForm({ initial, fixedCompanyId, onSubmit, onCancel, s
       />
       <div className="grid grid-cols-2 gap-3">
         <Select
-          label="Contato / decisor"
-          placeholder="Selecione"
+          label="Contato cadastrado"
+          placeholder="Selecione (opcional)"
           options={(contacts ?? []).map((c) => ({ value: c.id, label: c.name }))}
           value={values.contact_id}
           onChange={(e) => setValues((v) => ({ ...v, contact_id: e.target.value }))}
@@ -77,6 +78,12 @@ export function OpportunityForm({ initial, fixedCompanyId, onSubmit, onCancel, s
           onChange={(e) => setValues((v) => ({ ...v, owner_id: e.target.value }))}
         />
       </div>
+      <Input
+        label="Nome do decisor"
+        placeholder="Ex.: Roberto Anzolin (se ainda não estiver cadastrado como contato)"
+        value={values.decision_maker_name}
+        onChange={(e) => setValues((v) => ({ ...v, decision_maker_name: e.target.value }))}
+      />
       <div className="grid grid-cols-2 gap-3">
         <Input
           label="Valor estimado (R$)"

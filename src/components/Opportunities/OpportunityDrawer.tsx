@@ -15,7 +15,6 @@ import { ActivityForm } from "@/components/Activities/ActivityForm";
 import { ActivityBadge } from "@/components/Activities/ActivityBadge";
 import { LossReasonModal } from "./LossReasonModal";
 import { QuotesPanel } from "@/components/Quotes/QuotesPanel";
-import { CadencePanel } from "./CadencePanel";
 import { ACTIVITY_TYPE_LABELS, formatCurrencyBRL, formatDateTime } from "@/lib/utils";
 import { historyFormSchema, noteFormSchema, type ActivityFormValues, type HistoryFormValues, type NoteFormValues, type OpportunityFormValues } from "@/lib/formSchemas";
 
@@ -120,13 +119,19 @@ export function OpportunityDrawer({ opportunityId, onClose }: { opportunityId: s
                   <p className="text-sm text-slate-700">{data.owner_name ?? "—"}</p>
                 </div>
                 <div>
+                  <p className="text-xs font-medium uppercase text-slate-400">Decisor</p>
+                  <p className="text-sm text-slate-700">
+                    {data.contacts.find((c) => c.id === data.contact_id)?.name ?? data.decision_maker_name ?? "—"}
+                  </p>
+                </div>
+                <div>
                   <p className="text-xs font-medium uppercase text-slate-400">Próxima atividade</p>
                   {data.next_activity ? (
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-slate-700">
                         {ACTIVITY_TYPE_LABELS[data.next_activity.type]} · {formatDateTime(data.next_activity.due_at)}
                       </span>
-                      <ActivityBadge level={data.alert_level ?? null} overdueDays={data.overdue_days} />
+                      <ActivityBadge level={data.alert_level ?? null} overdueDays={data.overdue_days} dueAt={data.next_activity.due_at} />
                     </div>
                   ) : (
                     <p className="text-sm text-slate-400">Nenhuma atividade agendada</p>
@@ -184,12 +189,6 @@ export function OpportunityDrawer({ opportunityId, onClose }: { opportunityId: s
                 <QuotesPanel opportunityId={opportunityId} quotes={data.quotes} contacts={data.contacts} />
               </section>
 
-              {/* Cadência de prospecção */}
-              <section>
-                <h3 className="mb-2 text-sm font-semibold text-slate-700">Cadência de prospecção</h3>
-                <CadencePanel opportunityId={opportunityId} />
-              </section>
-
               {/* Atividades agendadas */}
               <section>
                 <div className="mb-2 flex items-center justify-between">
@@ -229,7 +228,7 @@ export function OpportunityDrawer({ opportunityId, onClose }: { opportunityId: s
                         <div className="flex items-center gap-2">
                           {activity.status === "pendente" ? (
                             <>
-                              <ActivityBadge level={activity.alert_level ?? null} overdueDays={activity.overdue_days} />
+                              <ActivityBadge level={activity.alert_level ?? null} overdueDays={activity.overdue_days} dueAt={activity.due_at} />
                               <Button
                                 variant="secondary"
                                 className="!px-2 !py-1 text-xs"

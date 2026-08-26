@@ -273,8 +273,8 @@ opportunities.post("/", async (c) => {
   const now = nowIso();
 
   await c.env.DB.prepare(
-    `INSERT INTO opportunities (id, company_id, contact_id, title, stage_id, owner_id, value, status, expected_close_date, created_at, updated_at, created_by, updated_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'aberta', ?, ?, ?, ?, ?)`
+    `INSERT INTO opportunities (id, company_id, contact_id, title, stage_id, owner_id, value, status, expected_close_date, decision_maker_name, created_at, updated_at, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'aberta', ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       id,
@@ -285,6 +285,7 @@ opportunities.post("/", async (c) => {
       input.owner_id || user.id,
       input.value ?? null,
       emptyToNull(input.expected_close_date ?? null),
+      emptyToNull(input.decision_maker_name ?? null),
       now,
       now,
       user.id,

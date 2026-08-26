@@ -45,6 +45,7 @@ export const opportunityFormSchema = z.object({
     .optional()
     .refine((v) => !v || parseBRLNumber(v) !== null, "Valor inválido."),
   expected_close_date: z.string().trim().optional(),
+  decision_maker_name: z.string().trim().optional(),
 });
 export type OpportunityFormValues = z.infer<typeof opportunityFormSchema>;
 
@@ -126,3 +127,18 @@ export const nutritionUpdateFormSchema = z.object({
   resume_at: z.string().trim().optional(),
 });
 export type NutritionUpdateFormValues = z.infer<typeof nutritionUpdateFormSchema>;
+
+// ---------------------------------------------------------------------------
+// Usuários (gestão de equipe — Etapa 3)
+// ---------------------------------------------------------------------------
+export const userFormSchema = z.object({
+  name: z.string().trim().min(2, "Informe o nome do usuário."),
+  email: z
+    .string()
+    .trim()
+    .min(3, "Informe o e-mail do usuário.")
+    .refine((v) => /.+@.+\..+/.test(v), "E-mail inválido."),
+  role: z.enum(["admin", "vendedor"]),
+  active: z.boolean(),
+});
+export type UserFormValues = z.infer<typeof userFormSchema>;

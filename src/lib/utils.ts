@@ -43,6 +43,22 @@ export function formatDateTime(iso: string | null | undefined): string {
   }).format(date);
 }
 
+/**
+ * Dias entre hoje e uma data prevista (due_at), truncados por dia em UTC —
+ * mesma lógica de computeActivityAlert() no backend (worker/utils.ts), só
+ * que aqui usada apenas para o caso "futura": quantos dias faltam até o
+ * vencimento. Retorna null se a data for inválida.
+ */
+export function daysUntilDue(dueAt: string | null | undefined): number | null {
+  if (!dueAt) return null;
+  const due = new Date(dueAt);
+  if (Number.isNaN(due.getTime())) return null;
+  const dueDay = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((dueDay - today) / 86_400_000);
+}
+
 /** Converte um ISO string para o valor esperado por <input type="datetime-local">. */
 export function toDatetimeLocalValue(iso: string | null | undefined): string {
   if (!iso) return "";

@@ -28,6 +28,16 @@ export default {
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
       },
+      // Tokens de espaçamento/raio/sombra do redesign visual — usados para
+      // manter consistência entre cards, colunas do funil e superfícies.
+      borderRadius: {
+        card: "10px",
+      },
+      boxShadow: {
+        subtle: "0 1px 2px 0 rgb(15 23 42 / 0.04)",
+        card: "0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.06)",
+        raised: "0 4px 12px -2px rgb(15 23 42 / 0.10), 0 2px 4px -2px rgb(15 23 42 / 0.06)",
+      },
     },
   },
   plugins: [],

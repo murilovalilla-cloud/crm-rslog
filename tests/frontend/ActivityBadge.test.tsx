@@ -8,14 +8,21 @@ describe("<ActivityBadge />", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("mostra o rótulo 'Atrasada' com a quantidade de dias em atraso", () => {
+  it("mostra a quantidade de dias em atraso", () => {
     render(<ActivityBadge level="atrasada" overdueDays={4} />);
-    expect(screen.getByText("Atrasada (4d)")).toBeInTheDocument();
+    expect(screen.getByText("Atrasada há 4d")).toBeInTheDocument();
   });
 
   it("mostra 'Vence hoje' sem sufixo de dias", () => {
     render(<ActivityBadge level="hoje" overdueDays={0} />);
     expect(screen.getByText("Vence hoje")).toBeInTheDocument();
+  });
+
+  it("mostra a contagem de dias restantes para uma atividade futura", () => {
+    const dueAt = new Date();
+    dueAt.setUTCDate(dueAt.getUTCDate() + 3);
+    render(<ActivityBadge level="futura" dueAt={dueAt.toISOString()} />);
+    expect(screen.getByText("Em 3d")).toBeInTheDocument();
   });
 
   it("mostra 'Concluída' para atividades já concluídas", () => {

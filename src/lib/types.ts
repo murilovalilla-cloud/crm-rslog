@@ -10,6 +10,29 @@ export interface User {
   role: UserRole;
 }
 
+/** Usuário com os campos adicionais usados na tela de gestão de equipe (admin). */
+export interface UserAdmin extends User {
+  active: 0 | 1;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Linha da trilha de auditoria (audit_log), usada na tela de auditoria (admin). */
+export interface AuditLogEntry {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  field_name: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  occurred_at: string;
+  created_at: string;
+}
+
 export interface Company {
   id: string;
   name: string;
@@ -80,6 +103,8 @@ export interface Opportunity {
   loss_reason_id: string | null;
   expected_close_date: string | null;
   closed_at: string | null;
+  /** Nome do decisor digitado livremente (usado quando ainda não há contato cadastrado). */
+  decision_maker_name?: string | null;
   created_at: string;
   updated_at: string;
   company_name?: string;
